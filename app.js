@@ -67,6 +67,10 @@ function setStatus(msg, color) {
     `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};margin-right:5px;vertical-align:middle"></span>${msg}`;
 }
 
+function saveLocalOnly() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+}
+
 function saveState() {
   const data = JSON.parse(JSON.stringify(state));
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) {}
@@ -290,7 +294,7 @@ function updateRow(i, field, val, inputEl) {
   }
 
   row[field] = val;
-  saveState();
+  saveLocalOnly(); // person, notes, area name — store locally; Firebase syncs on next date commit
   render();
 }
 
