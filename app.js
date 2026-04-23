@@ -330,8 +330,12 @@ function renderMonthly(rows) {
       ? lockedDate(row.actual)
       : `<input type="date" value="${row.actual}" onchange="updateRow(${i},'actual',this.value,this)" />`;
 
+    const areaCell = row.custom
+      ? `<div class="custom-area-cell"><input type="text" class="custom-area-input" value="${row.area.replace(/"/g,'&quot;')}" placeholder="Area name…" onchange="updateRow(${i},'area',this.value)" /><button class="del-row-btn" onclick="deleteRow(${i})" title="Remove">×</button></div>`
+      : `<span class="area-icon">${icon}</span><span class="area-cell">${row.area}</span>`;
+
     tr.innerHTML = `
-      <td><span class="area-icon">${icon}</span><span class="area-cell">${row.area}</span></td>
+      <td>${areaCell}</td>
       <td>
         <select onchange="updateRow(${i},'person',this.value)">
           <option value="">— unassigned —</option>
@@ -497,11 +501,12 @@ function renderWeekRow(row, i) {
     ? lockedDate(row.actual)
     : `<input type="date" value="${row.actual}" onchange="updateRow(${i},'actual',this.value,this)" />`;
 
+  const areaDisplay = row.custom
+    ? `<span class="area-cell">${row.area || '(unnamed)'}</span>`
+    : `<span class="area-icon">${icon}</span><span class="area-cell">${row.area}</span>`;
+
   return `<div class="week-row">
-    <div class="week-area-col">
-      <span class="area-icon">${icon}</span>
-      <span class="area-cell">${row.area}</span>
-    </div>
+    <div class="week-area-col">${areaDisplay}</div>
     <div class="week-person-col">
       <select onchange="updateRow(${i},'person',this.value)">
         <option value="">— assign —</option>
@@ -691,6 +696,21 @@ function calendarBtnsHTML() {
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
+
+function addRow() {
+  const md = getMonthData();
+  md.rows.push({ area: '', person: '', planned: '', actual: '', notes: '', custom: true });
+  saveState();
+  render();
+}
+
+function deleteRow(i) {
+  const md = getMonthData();
+  if (!md.rows[i]?.custom) return;
+  md.rows.splice(i, 1);
+  saveState();
+  render();
+}
 
 function changeMonth(dir) {
   curMonth += dir;
