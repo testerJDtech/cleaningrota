@@ -129,7 +129,8 @@ function switchView(view) {
 
 // ─── Modal ───────────────────────────────────────────────────────────────────
 
-let _modal = null;
+let _modal        = null;
+let _calendarData = null;
 
 function showModal({ title, body, hasInput, inputPlaceholder, confirmText, cancelText, onConfirm, onCancel, noCancelBtn }) {
   _modal = { onConfirm, onCancel, hasInput, noCancelBtn };
@@ -172,7 +173,10 @@ function modalCancel() {
 }
 
 function modalClickOutside(e) {
-  if (e.target === document.getElementById('modalOverlay')) modalCancel();
+  if (e.target === document.getElementById('modalOverlay')) {
+    if (_modal?.noCancelBtn) modalConfirm();
+    else modalCancel();
+  }
 }
 
 // ─── Row updates ─────────────────────────────────────────────────────────────
@@ -189,7 +193,17 @@ function updateRow(i, field, val, inputEl) {
       body:        `Set the planned date for <b>${row.area}</b> to <b>${fmtDate(val)}</b>?<br><br>Once confirmed you won't be able to change it.`,
       confirmText: 'Yes, lock it in',
       cancelText:  'Go back',
-      onConfirm:   () => { row.planned = val; row.plannedLocked = true; saveState(); render(); },
+      onConfirm: () => {
+        row.planned = val; row.plannedLocked = true; saveState();
+        _calendarData = { person: row.person, area: row.area, planned: val };
+        showModal({
+          title:       'Add to your calendar? 📅',
+          body:        `<b>${row.area}</b> is locked in for <b>${fmtDate(val)}</b>.<br><br>Add it to your calendar with alerts 2 days before and on the day itself.${calendarBtnsHTML()}`,
+          confirmText: 'Done',
+          noCancelBtn: true,
+          onConfirm:   () => render(),
+        });
+      },
       onCancel:    () => { if (inputEl) inputEl.value = row.planned || ''; },
     });
     return;
@@ -277,7 +291,7 @@ function renderMonthly(rows) {
     const icon = AREAS.find(a => a.name === row.area)?.icon || '🧹';
 
     const plannedCell = row.plannedLocked
-      ? lockedDate(row.planned)
+      ? `<span class="locked-date-wrap">${lockedDate(row.planned)}<button class="cal-mini-btn" onclick="showCalendarOptions(${i})" title="Add to calendar">📅</button></span>`
       : `<input type="date" value="${row.planned}" onchange="updateRow(${i},'planned',this.value,this)" />`;
 
     const actualCell = row.actualLocked
@@ -300,19 +314,7 @@ function renderMonthly(rows) {
     tb.appendChild(tr);
   });
 
-  const rp   = document.getElementById('remPerson');
-  const curP = rp.value;
-  rp.innerHTML = PEOPLE.map(p => `<option value="${p}"${p === curP ? ' selected' : ''}>${p}</option>`).join('');
-  populateRemArea(rows);
   renderCalendar(rows);
-}
-
-function populateRemArea(rows) {
-  const ra  = document.getElementById('remArea');
-  const cur = ra.value;
-  const assigned = rows.filter(r => r.person);
-  ra.innerHTML = '<option value="">All their areas</option>' +
-    assigned.map(r => `<option value="${r.area}"${r.area === cur ? ' selected' : ''}>${r.area} (${r.person})</option>`).join('');
 }
 
 // ─── Calendar ────────────────────────────────────────────────────────────────
@@ -457,7 +459,7 @@ function renderWeekly(rows) {
 function renderWeekRow(row, i) {
   const icon        = AREAS.find(a => a.name === row.area)?.icon || '🧹';
   const plannedCell = row.plannedLocked
-    ? lockedDate(row.planned)
+    ? `<span class="locked-date-wrap">${lockedDate(row.planned)}<button class="cal-mini-btn" onclick="showCalendarOptions(${i})" title="Add to calendar">📅</button></span>`
     : `<input type="date" value="${row.planned}" onchange="updateRow(${i},'planned',this.value,this)" />`;
   const actualCell  = row.actualLocked
     ? lockedDate(row.actual)
@@ -568,41 +570,92 @@ function renderStats(rows) {
   document.getElementById('statsContent').innerHTML = html;
 }
 
-// ─── Reminder ────────────────────────────────────────────────────────────────
+// ─── Google Calendar / ICS ───────────────────────────────────────────────────
 
-function genReminder() {
-  const person   = document.getElementById('remPerson').value;
-  const area     = document.getElementById('remArea').value;
-  const tone     = document.getElementById('remTone').value;
-  const date     = document.getElementById('remDate').value;
-  const rows     = getMonthData().rows.filter(r => r.person === person && (area === '' || r.area === area));
-  const areaText = area || rows.map(r => r.area).join(' and ') || 'your assigned areas';
-  const dateText = date
-    ? `by ${new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}`
-    : 'before the end of the month';
-  const mn = new Date(curYear, curMonth, 1).toLocaleDateString('en-GB', { month: 'long' });
-
-  const msgs = {
-    friendly: `Hey ${person}! Hope you're good. Just a quick heads up — you're down to clean the ${areaText} for ${mn}. Could you try to get it done ${dateText}? Appreciate it! 🙂`,
-    firm:     `Hi ${person}, reminder that you are responsible for cleaning the ${areaText} this month (${mn}). Please ensure this is completed ${dateText}. Thanks.`,
-    funny:    `Oi ${person}! The ${areaText} has been looking at me with sad eyes. It misses you. Please reunite ${dateText} — the mop is getting jealous of everyone else's areas. 🧹😂`,
-    passive:  `Hi ${person}, just wanted to mention that ${areaText} is still waiting to be cleaned this ${mn}. No pressure at all, totally fine, it's only been a while. Some of us have noticed but truly it's fine. 😊`,
-  };
-
-  document.getElementById('reminderText').textContent = msgs[tone];
-  document.getElementById('reminderOut').style.display = 'block';
-  toast('Reminder generated — click it to copy!');
+function nextIsoDate(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
-function copyReminder() {
-  const txt = document.getElementById('reminderText').textContent;
-  navigator.clipboard.writeText(txt)
-    .then(() => toast('Copied to clipboard!'))
-    .catch(() => {
-      const ta = document.createElement('textarea');
-      ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-      toast('Copied!');
-    });
+function createICS() {
+  const { person, area, planned } = _calendarData;
+  const icon  = AREAS.find(a => a.name === area)?.icon || '';
+  const title = `${icon} ${person}: clean ${area}`.trim();
+  const start = planned.replace(/-/g, '');
+  const end   = nextIsoDate(planned);
+  const uid   = `cleaning-${start}-${area.replace(/\s+/g, '-')}-${Date.now()}@houseroota`;
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//House Rota//EN',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTART;VALUE=DATE:${start}`,
+    `DTEND;VALUE=DATE:${end}`,
+    `SUMMARY:${title}`,
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:Reminder: ${title} in 2 days`,
+    'TRIGGER:-P2D',
+    'END:VALARM',
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:Today: ${title}`,
+    'TRIGGER:PT9H',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+}
+
+function downloadICS() {
+  if (!_calendarData) return;
+  const blob = new Blob([createICS()], { type: 'text/calendar;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `cleaning-${_calendarData.planned}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Calendar file downloaded!');
+}
+
+function openGoogleCalendar() {
+  if (!_calendarData) return;
+  const { person, area, planned } = _calendarData;
+  const icon  = AREAS.find(a => a.name === area)?.icon || '';
+  const title = encodeURIComponent(`${icon} ${person}: clean ${area}`.trim());
+  const start = planned.replace(/-/g, '');
+  const end   = nextIsoDate(planned);
+  const url   = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${end}&details=${encodeURIComponent('House cleaning rota reminder')}`;
+  window.open(url, '_blank');
+}
+
+function showCalendarOptions(i) {
+  const row = getMonthData().rows[i];
+  if (!row.planned) return;
+  _calendarData = { person: row.person, area: row.area, planned: row.planned };
+  showModal({
+    title:       'Add to your calendar 📅',
+    body:        `<b>${row.area}</b> is planned for <b>${fmtDate(row.planned)}</b>.${calendarBtnsHTML()}`,
+    confirmText: 'Done',
+    noCancelBtn: true,
+    onConfirm:   () => {},
+  });
+}
+
+function calendarBtnsHTML() {
+  return `<div class="cal-add-section">
+    <div class="cal-add-btns">
+      <button class="cal-btn cal-btn-gcal" onclick="openGoogleCalendar()">Open in Google Calendar</button>
+      <button class="cal-btn cal-btn-ics"  onclick="downloadICS()">Download .ics file</button>
+    </div>
+    <div class="cal-add-note">The .ics file includes 2-day and same-day alerts — works with Apple Calendar, Outlook &amp; more.</div>
+  </div>`;
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
