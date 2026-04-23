@@ -32,6 +32,7 @@ const SCRIPTURES = {
 const LOCK_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
 
 const STORE_KEY = 'house_rota_v2';
+const DB_URL    = 'https://cleaning-rota-ccf7d-default-rtdb.europe-west1.firebasedatabase.app/rota.json';
 let state       = { months: {} };
 let curMonth    = new Date().getMonth();
 let curYear     = new Date().getFullYear();
@@ -44,19 +45,57 @@ function mKey() {
   return `${curYear}-${String(curMonth + 1).padStart(2, '0')}`;
 }
 
-function loadState() {
+async function loadState() {
+  try {
+    const res  = await fetch(DB_URL);
+    const data = await res.json();
+    if (data) { state = data; return; }
+  } catch (e) {}
+  // fall back to local cache if Firebase unreachable
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) state = JSON.parse(raw);
   } catch (e) {}
 }
 
-function saveState() {
+function setStatus(msg, color) {
+  document.getElementById('saveStatus').innerHTML =
+    `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};margin-right:5px;vertical-align:middle"></span>${msg}`;
+}
+
+async function saveState() {
+  const body = JSON.stringify(state);
+  try { localStorage.setItem(STORE_KEY, body); } catch (e) {}
+  setStatus('saving…', '#C9860A');
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    document.getElementById('saveStatus').innerHTML =
-      '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4A7C2F;margin-right:5px;vertical-align:middle"></span>saved';
-  } catch (e) {}
+    await fetch(DB_URL, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    setStatus('saved', '#4A7C2F');
+  } catch (e) {
+    setStatus('save failed ⚠', '#8B3A0F');
+  }
+}
+
+function connectLive() {
+  setStatus('connecting…', '#A8A59E');
+  const es = new EventSource(DB_URL);
+
+  es.addEventListener('put', (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.data !== null && msg.data !== undefined) {
+        state = msg.data;
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (_) {}
+        render();
+      }
+      setStatus('live', '#4A7C2F');
+    } catch {}
+  });
+
+  es.onerror = () => setStatus('reconnecting…', '#C9860A');
 }
 
 function getMonthData() {
@@ -699,6 +738,9 @@ function toast(msg) {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-loadState();
-render();
-document.getElementById('saveStatus').textContent = 'auto-saving';
+(async () => {
+  document.getElementById('saveStatus').textContent = 'loading…';
+  await loadState();
+  render();
+  connectLive();
+})();
