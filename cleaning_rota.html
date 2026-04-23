@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>House Cleaning Rota</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>🧹 house rota</h1>
+    <span class="header-sub" id="saveStatus">loading…</span>
+  </div>
+  <div class="month-nav">
+    <button class="nav-btn" onclick="changeMonth(-1)">&#8592;</button>
+    <span class="month-label" id="monthLabel"></span>
+    <button class="nav-btn" onclick="changeMonth(1)">&#8594;</button>
+  </div>
+</div>
+
+<nav class="tab-nav">
+  <button class="tab-btn active" data-view="monthly" onclick="switchView('monthly')">Monthly</button>
+  <button class="tab-btn"        data-view="weekly"  onclick="switchView('weekly')">Weekly</button>
+  <button class="tab-btn"        data-view="stats"   onclick="switchView('stats')">Stats</button>
+</nav>
+
+<!-- ═══ MONTHLY VIEW ═══════════════════════════════════════════════════════ -->
+<div id="view-monthly" class="view active">
+  <div class="main">
+
+    <div class="summary" id="summary"></div>
+
+    <div class="actions-row">
+      <button class="sm-btn" onclick="resetMonth()">Reset this month</button>
+      <button class="sm-btn" onclick="copyText()">Copy as text</button>
+      <button class="sm-btn" onclick="printPage()">Print / save as PDF</button>
+    </div>
+
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:170px">Area</th>
+            <th style="width:140px">Assigned to</th>
+            <th style="width:130px">Planned date</th>
+            <th style="width:130px">Completed date</th>
+            <th style="width:110px">Status</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-card">
+      <h3>Cleaning calendar</h3>
+      <p class="desc">Planned dates this month. ✓ = on time · ⚠ = completed late · strikethrough = late completion. A small dashed dot marks the actual completion day when it differs from planned.</p>
+      <div class="cal-legend" id="calLegend"></div>
+      <div class="cal-grid"   id="calGrid"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ WEEKLY VIEW ════════════════════════════════════════════════════════ -->
+<div id="view-weekly" class="view">
+  <div class="main" id="weeklyContent"></div>
+</div>
+
+<!-- ═══ STATS VIEW ════════════════════════════════════════════════════════ -->
+<div id="view-stats" class="view">
+  <div class="main" id="statsContent"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="modalOverlay" onclick="modalClickOutside(event)">
+  <div class="modal">
+    <div class="modal-title"   id="modalTitle"></div>
+    <div class="modal-body"    id="modalBody"></div>
+    <textarea class="modal-textarea" id="modalTextarea"></textarea>
+    <div class="modal-footer">
+      <button class="sm-btn"               id="modalCancelBtn"  onclick="modalCancel()">Cancel</button>
+      <button class="action-btn btn-green" id="modalConfirmBtn" onclick="modalConfirm()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
