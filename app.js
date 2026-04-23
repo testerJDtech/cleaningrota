@@ -32,7 +32,17 @@ const SCRIPTURES = {
 const LOCK_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
 
 const STORE_KEY = 'house_rota_v2';
-const DB_URL    = 'https://cleaning-rota-ccf7d-default-rtdb.europe-west1.firebasedatabase.app/rota.json';
+
+firebase.initializeApp({
+  apiKey:            'AIzaSyD9P0baQ_C6Cta3qwIPsN2UxT-ENWaaT24',
+  authDomain:        'cleaning-rota-ccf7d.firebaseapp.com',
+  databaseURL:       'https://cleaning-rota-ccf7d-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId:         'cleaning-rota-ccf7d',
+  storageBucket:     'cleaning-rota-ccf7d.firebasestorage.app',
+  messagingSenderId: '492172527811',
+  appId:             '1:492172527811:web:44f839db58164768efba76',
+});
+const rotaRef = firebase.database().ref('rota');
 let state       = { months: {} };
 let curMonth    = new Date().getMonth();
 let curYear     = new Date().getFullYear();
@@ -45,13 +55,7 @@ function mKey() {
   return `${curYear}-${String(curMonth + 1).padStart(2, '0')}`;
 }
 
-async function loadState() {
-  try {
-    const res  = await fetch(DB_URL);
-    const data = await res.json();
-    if (data) { state = data; return; }
-  } catch (e) {}
-  // fall back to local cache if Firebase unreachable
+function loadLocalState() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) state = JSON.parse(raw);
@@ -63,39 +67,28 @@ function setStatus(msg, color) {
     `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};margin-right:5px;vertical-align:middle"></span>${msg}`;
 }
 
-async function saveState() {
-  const body = JSON.stringify(state);
-  try { localStorage.setItem(STORE_KEY, body); } catch (e) {}
+function saveState() {
+  const data = JSON.parse(JSON.stringify(state));
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) {}
   setStatus('saving…', '#C9860A');
-  try {
-    await fetch(DB_URL, {
-      method:  'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
-    setStatus('saved', '#4A7C2F');
-  } catch (e) {
-    setStatus('save failed ⚠', '#8B3A0F');
-  }
+  rotaRef.set(data)
+    .then(() => setStatus('saved', '#4A7C2F'))
+    .catch(() => setStatus('save failed ⚠', '#8B3A0F'));
 }
 
 function connectLive() {
   setStatus('connecting…', '#A8A59E');
-  const es = new EventSource(DB_URL);
-
-  es.addEventListener('put', (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-      if (msg.data !== null && msg.data !== undefined) {
-        state = msg.data;
-        try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (_) {}
-        render();
-      }
-      setStatus('live', '#4A7C2F');
-    } catch {}
+  rotaRef.on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      state = data;
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (_) {}
+    }
+    render();
+    setStatus('live', '#4A7C2F');
+  }, () => {
+    setStatus('error — check connection ⚠', '#8B3A0F');
   });
-
-  es.onerror = () => setStatus('reconnecting…', '#C9860A');
 }
 
 function getMonthData() {
@@ -738,9 +731,6 @@ function toast(msg) {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-(async () => {
-  document.getElementById('saveStatus').textContent = 'loading…';
-  await loadState();
-  render();
-  connectLive();
-})();
+loadLocalState(); // render immediately from cache while Firebase connects
+render();
+connectLive();   // Firebase takes over and keeps all devices in sync
