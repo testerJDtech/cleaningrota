@@ -1,6 +1,7 @@
 const PEOPLE = ['John', 'Chris', 'Awesome', 'Rodney', 'Byron'];
 const AREAS = [
   { name: 'Kitchen',                icon: '🍳' },
+  { name: 'Kitchen',                icon: '🍳' },
   { name: 'Hallways & living room', icon: '🚪' },
   { name: 'Bathroom (downstairs)', icon: '🚿' },
   { name: 'Bathroom (upstairs)',   icon: '🛁' },
