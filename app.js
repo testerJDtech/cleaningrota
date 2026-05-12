@@ -56,6 +56,13 @@ function mKey() {
   return `${curYear}-${String(curMonth + 1).padStart(2, '0')}`;
 }
 
+function wKey(date) {
+  const d = new Date(typeof date === 'string' ? date + 'T00:00:00' : date);
+  const day = d.getDay();
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)); // rewind to Monday
+  return d.toISOString().slice(0, 10);
+}
+
 function loadLocalState() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
@@ -87,7 +94,8 @@ function connectLive() {
     const data = snapshot.val();
     if (data) {
       state = data;
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (_) {}
+      migrateWeekStart();
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (_) {}
     }
     render();
     setStatus('live', '#4A7C2F');
@@ -98,12 +106,30 @@ function connectLive() {
 
 function getMonthData() {
   const k = mKey();
-  if (!state.months[k]) {
-    state.months[k] = {
-      rows: AREAS.map(a => ({ area: a.name, person: '', planned: '', actual: '', notes: '' })),
-    };
-  }
+  if (!state.months[k]) state.months[k] = { rows: [] };
   return state.months[k];
+}
+
+// Stamp legacy rows (no weekStart) with the first Monday of their month
+function migrateWeekStart() {
+  Object.entries(state.months || {}).forEach(([mk, md]) => {
+    if (!md.rows) return;
+    const [y, m] = mk.split('-').map(Number);
+    const fallback = wKey(new Date(y, m - 1, 1));
+    md.rows.forEach(row => { if (!row.weekStart) row.weekStart = fallback; });
+  });
+}
+
+// Add fresh rows for the current week if they don't exist yet
+function ensureCurrentWeek() {
+  const now = new Date();
+  if (curMonth !== now.getMonth() || curYear !== now.getFullYear()) return;
+  const md  = getMonthData();
+  const wk  = wKey(today);
+  if (!md.rows.some(r => r.weekStart === wk)) {
+    AREAS.forEach(a => md.rows.push({ area: a.name, person: '', planned: '', actual: '', notes: '', weekStart: wk }));
+    saveState();
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -303,6 +329,7 @@ function updateRow(i, field, val, inputEl) {
 
 function render() {
   document.getElementById('monthLabel').textContent = monthName();
+  ensureCurrentWeek();
   const rows = getMonthData().rows;
   if (currentView === 'monthly') renderMonthly(rows);
   if (currentView === 'weekly')  renderWeekly(rows);
@@ -323,36 +350,53 @@ function renderMonthly(rows) {
 
   const tb = document.getElementById('tbody');
   tb.innerHTML = '';
+
+  // Group rows by weekStart, sorted oldest→newest
+  const groups = {};
   rows.forEach((row, i) => {
-    const tr   = document.createElement('tr');
-    const icon = AREAS.find(a => a.name === row.area)?.icon || '🧹';
+    const wk = row.weekStart || 'legacy';
+    if (!groups[wk]) groups[wk] = [];
+    groups[wk].push({ row, i });
+  });
 
-    const plannedCell = row.plannedLocked
-      ? `<span class="locked-date-wrap">${lockedDate(row.planned)}<button class="cal-mini-btn" onclick="showCalendarOptions(${i})" title="Add to calendar">📅</button></span>`
-      : `<input type="date" value="${row.planned}" onchange="updateRow(${i},'planned',this.value,this)" />`;
+  Object.keys(groups).sort().forEach(wk => {
+    // Week header row
+    const hdr = document.createElement('tr');
+    hdr.className = 'week-group-row';
+    hdr.innerHTML = `<td colspan="6" class="week-group-label">Week of ${fmtDate(wk)}</td>`;
+    tb.appendChild(hdr);
 
-    const actualCell = row.actualLocked
-      ? lockedDate(row.actual)
-      : `<input type="date" value="${row.actual}" onchange="updateRow(${i},'actual',this.value,this)" />`;
+    groups[wk].forEach(({ row, i }) => {
+      const tr   = document.createElement('tr');
+      const icon = AREAS.find(a => a.name === row.area)?.icon || '🧹';
 
-    const areaCell = row.custom
-      ? `<div class="custom-area-cell"><input type="text" class="custom-area-input" value="${row.area.replace(/"/g,'&quot;')}" placeholder="Area name…" onchange="updateRow(${i},'area',this.value)" /><button class="del-row-btn" onclick="deleteRow(${i})" title="Remove">×</button></div>`
-      : `<span class="area-icon">${icon}</span><span class="area-cell">${row.area}</span>`;
+      const plannedCell = row.plannedLocked
+        ? `<span class="locked-date-wrap">${lockedDate(row.planned)}<button class="cal-mini-btn" onclick="showCalendarOptions(${i})" title="Add to calendar">📅</button></span>`
+        : `<input type="date" value="${row.planned}" onchange="updateRow(${i},'planned',this.value,this)" />`;
 
-    tr.innerHTML = `
-      <td>${areaCell}</td>
-      <td>
-        <select onchange="updateRow(${i},'person',this.value)">
-          <option value="">— unassigned —</option>
-          ${PEOPLE.map(p => `<option value="${p}"${row.person === p ? ' selected' : ''}>${p}</option>`).join('')}
-        </select>
-      </td>
-      <td>${plannedCell}</td>
-      <td>${actualCell}</td>
-      <td>${badgeHTML(getStatus(row))}${lateNoteHTML(row)}</td>
-      <td><input type="text" value="${row.notes}" placeholder="Add note…" onchange="updateRow(${i},'notes',this.value)" /></td>
-    `;
-    tb.appendChild(tr);
+      const actualCell = row.actualLocked
+        ? lockedDate(row.actual)
+        : `<input type="date" value="${row.actual}" onchange="updateRow(${i},'actual',this.value,this)" />`;
+
+      const areaCell = row.custom
+        ? `<div class="custom-area-cell"><input type="text" class="custom-area-input" value="${row.area.replace(/"/g,'&quot;')}" placeholder="Area name…" onchange="updateRow(${i},'area',this.value)" /><button class="del-row-btn" onclick="deleteRow(${i})" title="Remove">×</button></div>`
+        : `<span class="area-icon">${icon}</span><span class="area-cell">${row.area}</span>`;
+
+      tr.innerHTML = `
+        <td>${areaCell}</td>
+        <td>
+          <select onchange="updateRow(${i},'person',this.value)">
+            <option value="">— unassigned —</option>
+            ${PEOPLE.map(p => `<option value="${p}"${row.person === p ? ' selected' : ''}>${p}</option>`).join('')}
+          </select>
+        </td>
+        <td>${plannedCell}</td>
+        <td>${actualCell}</td>
+        <td>${badgeHTML(getStatus(row))}${lateNoteHTML(row)}</td>
+        <td><input type="text" value="${row.notes || ''}" placeholder="Add note…" onchange="updateRow(${i},'notes',this.value)" /></td>
+      `;
+      tb.appendChild(tr);
+    });
   });
 
   renderCalendar(rows);
@@ -452,18 +496,30 @@ function fmtWeekRange(week) {
 }
 
 function renderWeekly(rows) {
-  const weeks        = getMonthWeeks();
-  const isThisMonth  = curMonth === today.getMonth() && curYear === today.getFullYear();
+  const weeks       = getMonthWeeks();
+  const isThisMonth = curMonth === today.getMonth() && curYear === today.getFullYear();
+  const todayWk     = wKey(today);
 
   let html = '';
   weeks.forEach((week, wi) => {
-    const weekRows     = rows.filter(r => {
-      if (!r.planned) return false;
-      const d = new Date(r.planned + 'T00:00:00');
-      return d >= week.start && d <= week.end;
-    });
-    const isCurrentWeek = isThisMonth && today >= week.start && today <= week.end;
+    const wk            = wKey(week.start);
+    const isCurrentWeek = isThisMonth && wk === todayWk;
+    const isFuture      = week.start > today;
+    const weekRows      = rows.filter(r => r.weekStart === wk);
     const done          = weekRows.filter(r => r.actual).length;
+
+    if (isFuture && weekRows.length === 0) {
+      html += `<div class="week-card week-upcoming">
+        <div class="week-header">
+          <div>
+            <div class="week-label">Week ${wi + 1}</div>
+            <div class="week-range">${fmtWeekRange(week)}</div>
+          </div>
+        </div>
+        <div class="week-empty">Assignments open when this week starts 🗓</div>
+      </div>`;
+      return;
+    }
 
     html += `<div class="week-card${isCurrentWeek ? ' week-current' : ''}">
       <div class="week-header">
@@ -475,24 +531,10 @@ function renderWeekly(rows) {
       </div>
       ${weekRows.length
         ? `<div class="week-table">${weekRows.map(row => renderWeekRow(row, rows.indexOf(row))).join('')}</div>`
-        : '<div class="week-empty">No tasks planned for this week</div>'
+        : '<div class="week-empty">No tasks for this week</div>'
       }
     </div>`;
   });
-
-  const unscheduled = rows.filter(r => !r.planned);
-  if (unscheduled.length) {
-    html += `<div class="week-card week-unscheduled">
-      <div class="week-header">
-        <div>
-          <div class="week-label">Unscheduled</div>
-          <div class="week-range">No planned date set yet</div>
-        </div>
-        <span class="week-count">${unscheduled.length} task${unscheduled.length !== 1 ? 's' : ''}</span>
-      </div>
-      <div class="week-table">${unscheduled.map(row => renderWeekRow(row, rows.indexOf(row))).join('')}</div>
-    </div>`;
-  }
 
   document.getElementById('weeklyContent').innerHTML = html;
 }
@@ -704,7 +746,7 @@ function calendarBtnsHTML() {
 
 function addRow() {
   const md = getMonthData();
-  md.rows.push({ area: '', person: '', planned: '', actual: '', notes: '', custom: true });
+  md.rows.push({ area: '', person: '', planned: '', actual: '', notes: '', custom: true, weekStart: wKey(today) });
   saveState();
   render();
 }
@@ -756,6 +798,7 @@ function toast(msg) {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-loadLocalState(); // render immediately from cache while Firebase connects
+loadLocalState();
+migrateWeekStart(); // stamp any legacy rows with a weekStart
 render();
 connectLive();   // Firebase takes over and keeps all devices in sync
