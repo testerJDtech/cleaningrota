@@ -50,6 +50,22 @@ let curYear     = new Date().getFullYear();
 let currentView = 'monthly';
 const today     = new Date(); today.setHours(0, 0, 0, 0);
 
+const _expandedWeeks       = new Set(); // past week keys expanded in weekly view
+const _collapsedMthWeeks   = new Set(); // week group keys collapsed in monthly table
+const _mthWeeksInitialised = new Set(); // tracks which groups have been auto-collapsed once
+
+function toggleWeek(wk) {
+  if (_expandedWeeks.has(wk)) _expandedWeeks.delete(wk);
+  else _expandedWeeks.add(wk);
+  renderWeekly(getMonthData().rows);
+}
+
+function toggleMthWeek(wk) {
+  if (_collapsedMthWeeks.has(wk)) _collapsedMthWeeks.delete(wk);
+  else _collapsedMthWeeks.add(wk);
+  renderMonthly(getMonthData().rows);
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 function mKey() {
@@ -359,12 +375,26 @@ function renderMonthly(rows) {
     groups[wk].push({ row, i });
   });
 
+  const currentWk = wKey(today);
+
   Object.keys(groups).sort().forEach(wk => {
-    // Week header row
+    // Auto-collapse past week groups once on first encounter
+    if (wk < currentWk && !_mthWeeksInitialised.has(wk)) {
+      _collapsedMthWeeks.add(wk);
+      _mthWeeksInitialised.add(wk);
+    }
+    const isCollapsed = _collapsedMthWeeks.has(wk);
+    const chevron     = isCollapsed ? '▸' : '▾';
+
     const hdr = document.createElement('tr');
     hdr.className = 'week-group-row';
-    hdr.innerHTML = `<td colspan="6" class="week-group-label">Week of ${fmtDate(wk)}</td>`;
+    hdr.innerHTML = `<td colspan="6" class="week-group-label" onclick="toggleMthWeek('${wk}')">
+      <span>Week of ${fmtDate(wk)}</span>
+      <span class="week-chevron">${chevron}</span>
+    </td>`;
     tb.appendChild(hdr);
+
+    if (isCollapsed) return; // skip rendering rows when collapsed
 
     groups[wk].forEach(({ row, i }) => {
       const tr   = document.createElement('tr');
@@ -521,17 +551,26 @@ function renderWeekly(rows) {
       return;
     }
 
+    const isPast     = !isCurrentWeek && !isFuture;
+    const isExpanded = isCurrentWeek || _expandedWeeks.has(wk);
+    const chevron    = isExpanded ? '▾' : '▸';
+
     html += `<div class="week-card${isCurrentWeek ? ' week-current' : ''}">
-      <div class="week-header">
+      <div class="week-header${isPast ? ' week-header-toggle' : ''}"${isPast ? ` onclick="toggleWeek('${wk}')"` : ''}>
         <div>
           <div class="week-label">Week ${wi + 1}${isCurrentWeek ? ' <span class="week-now">this week</span>' : ''}</div>
           <div class="week-range">${fmtWeekRange(week)}</div>
         </div>
-        <span class="week-count">${done}/${weekRows.length} done</span>
+        <div class="week-header-right">
+          <span class="week-count">${done}/${weekRows.length} done</span>
+          ${isPast ? `<span class="week-chevron">${chevron}</span>` : ''}
+        </div>
       </div>
-      ${weekRows.length
-        ? `<div class="week-table">${weekRows.map(row => renderWeekRow(row, rows.indexOf(row))).join('')}</div>`
-        : '<div class="week-empty">No tasks for this week</div>'
+      ${isExpanded
+        ? (weekRows.length
+            ? `<div class="week-table">${weekRows.map(row => renderWeekRow(row, rows.indexOf(row))).join('')}</div>`
+            : '<div class="week-empty">No tasks recorded for this week</div>')
+        : ''
       }
     </div>`;
   });
