@@ -781,6 +781,37 @@ function calendarBtnsHTML() {
   </div>`;
 }
 
+// ─── End-of-month supplies reminder ─────────────────────────────────────────
+
+function checkSuppliesReminder() {
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  if (today.getDate() < lastDay - 4) return; // only last 5 days of month
+
+  const shownKey = `supplies-${today.getFullYear()}-${today.getMonth() + 1}`;
+  if (localStorage.getItem(shownKey)) return; // already shown this month
+  localStorage.setItem(shownKey, '1');
+
+  showModal({
+    title: '🛒 Nearly end of month — restock time!',
+    body: `<div class="supplies-banner">A new month is almost here. Make sure you're stocked up! 🏠</div>
+      Check you have enough of the following:<br>
+      <ul class="supplies-list">
+        <li>🧴 Toilet cleaner</li>
+        <li>🚿 Bathroom spray</li>
+        <li>🍳 Kitchen degreaser</li>
+        <li>🧹 Floor cleaner / mop refills</li>
+        <li>🧽 Sponges &amp; scrubbers</li>
+        <li>🗑 Bin bags</li>
+        <li>🫧 Washing up liquid</li>
+        <li>🧣 Microfibre cloths</li>
+      </ul>
+      Stay stocked, stay spotless! ✨`,
+    confirmText: 'On it! 🛒',
+    noCancelBtn: true,
+    onConfirm: () => {},
+  });
+}
+
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
 function addRow() {
@@ -841,3 +872,4 @@ loadLocalState();
 migrateWeekStart(); // stamp any legacy rows with a weekStart
 render();
 connectLive();   // Firebase takes over and keeps all devices in sync
+setTimeout(checkSuppliesReminder, 2000); // show after app has loaded
